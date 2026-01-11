@@ -1,72 +1,191 @@
-import { Text, View, Button } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import React, { useState, useEffect, useRef} from "react";
+import * as Haptics from "expo-haptics";
+import { getNetworkStateAsync } from "expo-network";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Button, StyleSheet, Text, View } from "react-native";
 
 export default function Index() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const processingRef = useRef(false);
+  const [loading, setLoading] = useState(false);
+
   useEffect(() => {
-    (async () => {
-      if (!permission?.granted) {
-        await requestPermission();
-      }
-    })();
+    if (!permission?.granted) {
+      requestPermission();
+    }
   }, []);
 
-  const handleBarCodeScanned = async ({ data }: { data: string }) => {
-    if (processingRef.current) return;
-    processingRef.current = true;
+  const handleBarCodeScanned = useCallback(
+    async ({ data }: { data: string }) => {
+      setLoading(true);
 
-    setScanned(true);
-    console.log("Scanned data:", data);
-
-    try {
-      const response = await fetch("https://puslespill-api.onrender.com/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ean: data }),
-      });
-
-      const result = await response.json();
-
-      if (result.status === "success") {
-        alert(`Lagt til: ${result.title}`);
-      } else if (result.status === "already_exists") {
-        alert("Allerede registrert");
-      } else {
-        alert("Lagt til (bare barcode)");
+      if (/^\d{12}$/.test(data)) {
+        data = "0" + data;
+      } else if (!/^\d{13}$/.test(data)) {
+        Alert.alert("Ugyldig strekkode", "Fant ikke en gyldig EAN-13 kode");
+        return;      
       }
 
-    } catch (error) {
-      alert("Nettverksfeil | sjekk serveren");
-    } finally {
-      processingRef.current = false;
-    }
-  };
+      if (processingRef.current) return;
+      processingRef.current = true;
+      console.log("Scanned EAN-13:", data);
 
-  if (!permission) return <Text>Requesting camera permission...</Text>;
-  if (!permission.granted) return <Text>No access to camera</Text>;
+      try {
+        const networkState = await getNetworkStateAsync();
+        if (!networkState.isConnected || !networkState.isInternetReachable) {
+          throw new Error("Ingen internettforbindelse");
+        }
+
+        const response = await fetch("https://puslespill-api.onrender.com/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ean: data }),
+        });
+
+        let result: any = {};
+        try {
+          const text = await response.text();
+          if (text) {
+            result = JSON.parse(text);
+          }
+        } catch (e) {
+          result = { status: "not_found" };
+        }
+
+        if (result.status === "success") {
+          Alert.alert("Suksess", `Lagt til: ${result.title} || "Puslespill`);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else if (result.status === "already_exists") {
+          Alert.alert("Info", "Allerede registrert");
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        } else {
+          Alert.alert("Lagt til", "Registrert (kun strekkode)");
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+        setScanned(true)
+      } catch (error: any) {
+        let message = "Noe gikk galt";
+
+        if (error.name === "AbortError") {
+          message = "Forespørselen tok for lang tid";
+        } else if (error.message?.includes("internet")) {
+          message = "Ingen internettforbindelse - sjekk WiFI/mobil";
+        } else {
+          message = error.message || "Nettverksfeil - prøv igjen";
+        }
+
+        Alert.alert("Feil", message);
+      } finally {
+        processingRef.current = false;
+        setLoading(false);
+      }
+      }, 
+      []
+  ); 
+    
+  if (!permission) {
+    return (
+      <View style={styles.centered}>
+        <Text>Laster kameratillatelse...</Text>
+      </View>
+    );
+  }
+    
+  if (!permission.granted) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Ingen tilgang til kameraet</Text>;
+        <Button title="Gi tilgang" onPress={requestPermission} />
+      </View>
+    );
+  }
 
   return (
-    <View
-      style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-      {!scanned && (
-        <CameraView
-          style={{ width: 300, height: 300 }}
-          facing="back"
-          barcodeScannerSettings={{
-            barcodeTypes: [
-              "ean13"
-            ]
-          }}
-          onBarcodeScanned={(scanned || processingRef.current) ? undefined : handleBarCodeScanned}
-        />
+    <View style={styles.container}>
+      
+      {!scanned ? (
+        <>
+          <Text style={styles.instruction}>
+            Sikt mot strekkoden på puslespillet
+          </Text>
+
+          <CameraView
+            style={styles.camera}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: ["ean13", "upc_a"],
+            }}
+            onBarcodeScanned={
+              scanned || processingRef.current ? undefined : handleBarCodeScanned
+            }
+          />
+
+          <View style={styles.overlay} />
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <Text style={styles.loadingText}>Laster...</Text>
+            </View>
+          )}
+        </>
+      ) : (
+        <View style={styles.successContainer}>
+          <Text style={styles.successText}>Skanning fullført!</Text>
+          <Button
+            title="Scan et nytt puslespill"
+            onPress={() => setScanned(false)}
+            color="#4CAF50"
+          />
+        </View>
       )}
-      {scanned && <Button title="Scan again" onPress={() => setScanned(false)} />}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+    container: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "black" },
+    camera: { flex: 1, width: "100%" },
+    overlay: {
+      position: "absolute",
+      width: 250,
+      height: 100,
+      borderWidth: 2,
+      borderColor: "white",
+      borderRadius: 10,
+      backgroundColor: "transparent",
+    },
+    instruction: { color: "white", fontSize: 18, marginBottom: 20 },
+    centered: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "black"},
+    errorText: { color: "#ff6b6b", fontSize: 18, marginBottom: 20},
+    successContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "black",
+    },
+    successText: {
+      color: "white",
+      fontSize: 24,
+      marginBottom: 32,
+    },
+    loadingOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
+    },
+    loadingText: {
+      color: "white",
+      fontSize: 24,
+      fontWeight: "bold",
+    }
+  });
 
 // uvicorn puslespill:app --host 0.0.0.0 --port 8000 --reload --log-level debug
 // npx expo start -c 
