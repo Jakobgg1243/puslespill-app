@@ -1,10 +1,12 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { getNetworkStateAsync } from "expo-network";
+import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, StyleSheet, Text, View } from "react-native";
 
 export default function Index() {
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const processingRef = useRef(false);
@@ -64,19 +66,10 @@ export default function Index() {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
 
+        router.push(`/details/${data}`);
         setScanned(true)
       } catch (error: any) {
-        let message = "Noe gikk galt";
-
-        if (error.name === "AbortError") {
-          message = "Forespørselen tok for lang tid";
-        } else if (error.message?.includes("internet")) {
-          message = "Ingen internettforbindelse - sjekk WiFI/mobil";
-        } else {
-          message = error.message || "Nettverksfeil - prøv igjen";
-        }
-
-        Alert.alert("Feil", message);
+        Alert.alert("Feil", error.message || "Noe gikk galt");
       } finally {
         processingRef.current = false;
         setLoading(false);
@@ -137,6 +130,7 @@ export default function Index() {
             onPress={() => setScanned(false)}
             color="#4CAF50"
           />
+          <Button title="Se historikk" onPress={() => router.push("/history")} color="#2196F3" />
         </View>
       )}
     </View>
