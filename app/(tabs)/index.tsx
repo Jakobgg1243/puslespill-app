@@ -1,16 +1,18 @@
+import { useIsFocused } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { getNetworkStateAsync } from "expo-network";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Index() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanned, setScanned] = useState(false);
   const processingRef = useRef(false);
   const [loading, setLoading] = useState(false);
+  const isFocused = useIsFocused();
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -66,8 +68,7 @@ export default function Index() {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
 
-        router.push(`/details/${data}`);
-        setScanned(true)
+        router.navigate(`/details/${data}`);
       } catch (error: any) {
         Alert.alert("Feil", error.message || "Noe gikk galt");
       } finally {
@@ -95,45 +96,36 @@ export default function Index() {
     );
   }
 
+  if (!isFocused) {
+    return null;
+  }
+  
   return (
-    <View style={styles.container}>
-      
-      {!scanned ? (
-        <>
-          <Text style={styles.instruction}>
-            Sikt mot strekkoden på puslespillet
-          </Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
+      <View style={styles.container}>
+        <Text style={styles.instruction}>
+          Sikt mot strekkoden på puslespillet
+        </Text>
 
-          <CameraView
-            style={styles.camera}
-            facing="back"
-            barcodeScannerSettings={{
-              barcodeTypes: ["ean13", "upc_a"],
-            }}
-            onBarcodeScanned={
-              scanned || processingRef.current ? undefined : handleBarCodeScanned
-            }
-          />
+        <CameraView
+          style={styles.camera}
+          facing="back"
+          barcodeScannerSettings={{
+            barcodeTypes: ["ean13", "upc_a"],
+          }}
+          onBarcodeScanned={
+            processingRef.current ? undefined : handleBarCodeScanned
+          }
+        />
 
-          <View style={styles.overlay} />
-          {loading && (
-            <View style={styles.loadingOverlay}>
-              <Text style={styles.loadingText}>Laster...</Text>
-            </View>
-          )}
-        </>
-      ) : (
-        <View style={styles.successContainer}>
-          <Text style={styles.successText}>Skanning fullført!</Text>
-          <Button
-            title="Scan et nytt puslespill"
-            onPress={() => setScanned(false)}
-            color="#4CAF50"
-          />
-          <Button title="Se historikk" onPress={() => router.push("/history")} color="#2196F3" />
-        </View>
-      )}
-    </View>
+        <View style={styles.overlay} />
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <Text style={styles.loadingText}>Laster...</Text>
+          </View>
+        )}
+      </View>
+    </SafeAreaView>
   );
 }
 
